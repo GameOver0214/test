@@ -3,113 +3,75 @@ import pandas as pd
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# Load the dataset
+# Load your dataset
 lko_rest = pd.read_csv("food1.csv")
 
-# Define the fav function
+# Function to calculate recommendations based on cosine similarity
 def fav(lko_rest1):
     lko_rest1 = lko_rest1.reset_index()
     count1 = CountVectorizer(stop_words='english')
     count_matrix = count1.fit_transform(lko_rest1['highlights'])
     cosine_sim2 = cosine_similarity(count_matrix, count_matrix)
-
     sim = list(enumerate(cosine_sim2[0]))
     sim = sorted(sim, key=lambda x: x[1], reverse=True)
     sim = sim[1:11]
     indi = [i[0] for i in sim]
-
-    final = lko_rest1.copy().iloc[indi[0]]
-    final = pd.DataFrame(final)
-    final = final.T
-
+    final = lko_rest1.copy().iloc[indi[0]].to_frame().T
     for i in range(1, len(indi)):
-        final1 = lko_rest1.copy().iloc[indi[i]]
-        final1 = pd.DataFrame(final1)
-        final1 = final1.T
-        final = pd.concat([final, final1])
-
+        final = pd.concat([final, lko_rest1.copy().iloc[indi[i]].to_frame().T])
     return final
 
-# Define the restaurant recommendation function
-def rest_rec(cost, people=2, min_cost=0, cuisine=[], Locality=[], fav_rest="", lko_rest=lko_rest):
-    cost = cost + 200
+# Function for restaurant recommendations based on filters
+def rest_rec(cost, people=2, min_cost=0, cuisine=[], locality=[], fav_rest=""):
     x = cost / people
     y = min_cost / people
+    filtered_rest = lko_rest[lko_rest['locality'].isin(locality)]
+    filtered_rest = filtered_rest[
+        (filtered_rest['average_cost_for_one'] <= x) & (filtered_rest['average_cost_for_one'] >= y)
+    ]
+    filtered_rest['Start'] = filtered_rest['cuisines'].apply(lambda x: any(c in x for c in cuisine))
+    filtered_rest = filtered_rest[filtered_rest['Start']]
 
-    lko_rest1 = lko_rest.copy().loc[lko_rest['locality'] == Locality[0]]
-
-    for i in range(1, len(Locality)):
-        lko_rest2 = lko_rest.copy().loc[lko_rest['locality'] == Locality[i]]
-        lko_rest1 = pd.concat([lko_rest1, lko_rest2])
-        lko_rest1.drop_duplicates(subset='name', keep='last', inplace=True)
-
-    lko_rest_locale = lko_rest1.copy()
-
-    lko_rest_locale = lko_rest_locale.loc[lko_rest_locale['average_cost_for_one'] <= x]
-    lko_rest_locale = lko_rest_locale.loc[lko_rest_locale['average_cost_for_one'] >= y]
-
-    lko_rest_locale['Start'] = lko_rest_locale['cuisines'].str.find(cuisine[0])
-    lko_rest_cui = lko_rest_locale.copy().loc[lko_rest_locale['Start'] >= 0]
-
-    for i in range(1, len(cuisine)):
-        lko_rest_locale['Start'] = lko_rest_locale['cuisines'].str.find(cuisine[i])
-        lko_rest_cu = lko_rest_locale.copy().loc[lko_rest_locale['Start'] >= 0]
-        lko_rest_cui = pd.concat([lko_rest_cui, lko_rest_cu])
-        lko_rest_cui.drop_duplicates(subset='name', keep='last', inplace=True)
-
-    if fav_rest != "":
-        favr = lko_rest.loc[lko_rest['name'] == fav_rest].drop_duplicates()
-        favr = pd.DataFrame(favr)
-        lko_rest3 = pd.concat([favr, lko_rest_cui])
-        lko_rest3.drop('Start', axis=1, inplace=True)
-        rest_selected = fav(lko_rest3)
+    if fav_rest:
+        favr = lko_rest[lko_rest['name'] == fav_rest].drop_duplicates()
+        rest_selected = fav(pd.concat([favr, filtered_rest]))
     else:
-        lko_rest_cui = lko_rest_cui.sort_values('scope', ascending=False)
-        rest_selected = lko_rest_cui.head(10)
-    
+        filtered_rest = filtered_rest.sort_values('scope', ascending=False)
+        rest_selected = filtered_rest.head(10)
     return rest_selected
 
-# Define the calculation function
-def calc(max_Price, people, min_Price, cuisine, locality):
-    rest_sugg = rest_rec(max_Price, people, min_Price, [cuisine], [locality])
-    rest_list1 = rest_sugg.copy().loc[:, ['name', 'address', 'locality', 'timings', 'aggregate_rating', 'url', 'cuisines']]
-    rest_list = pd.DataFrame(rest_list1)
-    rest_list = rest_list.reset_index()
-    rest_list = rest_list.rename(columns={'index': 'res_id'})
-    rest_list.drop('res_id', axis=1, inplace=True)
-    rest_list = rest_list.T
-    rest_list = rest_list
-    ans = rest_list.to_dict()
-    res = [value for value in ans.values()]
-    return res
+# Streamlit app code
+st.title("Restaurant Spotter")
+st.write("Welcome to the City of Nawabs! Let us help you find the best restaurants based on your preferences.")
 
-# Streamlit application
-st.title("Restaurant Recommender")
-
-# Input form
-with st.form(key="restaurant_form"):
-    people = st.number_input("Number of People", min_value=1, step=1, value=2)
-    min_Price = st.number_input("Minimum Price", min_value=0, step=100)
-    max_Price = st.number_input("Maximum Price", min_value=0, step=100)
-    cuisine1 = st.text_input("Cuisine", "Indian")
-    locality1 = st.text_input("Locality", "Hazratganj")
-
-    submit_button = st.form_submit_button(label="Search")
-
-# Display results after form submission
-if submit_button:
-    res = calc(max_Price, people, min_Price, cuisine1, locality1)
+# Form to take user input
+with st.form(key="restaurant_search_form"):
+    people = st.number_input("No. of People", min_value=1, value=2)
+    min_Price = st.number_input("Minimum Budget", min_value=0, value=0)
+    max_Price = st.number_input("Maximum Budget", min_value=0, value=500)
+    cuisine = st.multiselect("Select Cuisine", ['North Indian', 'Mughlai', 'Chinese', 'South Indian', 'Awadhi', 'Continental', 'Desserts', 'Bakery', 'Fast Food'])
+    locality = st.multiselect("Select Locality", ['Aliganj', 'Aminabad', 'Gomti Nagar', 'Chowk', 'Hazratganj', 'Lalbagh', 'Kaiserbagh', 'RajajiPuram', 'Charbagh', 'Mahanagar', 'Khurram Nagar'])
+    fav_rest = st.text_input("Favorite Restaurant (Optional)")
     
-    if len(res) > 0:
-        st.subheader("Recommended Restaurants")
-        for r in res:
-            st.write(f"**Name:** {r['name']}")
-            st.write(f"**Address:** {r['address']}")
-            st.write(f"**Locality:** {r['locality']}")
-            st.write(f"**Timings:** {r['timings']}")
-            st.write(f"**Rating:** {r['aggregate_rating']}")
-            st.write(f"**Cuisines:** {r['cuisines']}")
-            st.write(f"**URL:** {r['url']}")
-            st.markdown("---")
+    submit_button = st.form_submit_button(label="Get Restaurant Recommendations")
+
+# Handle form submission
+if submit_button:
+    if not cuisine or not locality:
+        st.error("Please select at least one cuisine and one locality.")
     else:
-        st.write("No restaurants found matching your criteria.")
+        recommendations = rest_rec(max_Price, people, min_Price, cuisine, locality, fav_rest)
+        if recommendations.empty:
+            st.write("Sorry, no restaurants found based on your criteria.")
+        else:
+            st.write("Here are some restaurant recommendations:")
+            st.dataframe(recommendations[['name', 'address', 'locality', 'timings', 'aggregate_rating', 'url', 'cuisines']])
+
+# Footer
+st.markdown("""
+<div style='text-align: center; color: white; background-color: black; padding: 10px;'>
+    Developed by <b>Sarvesh Sharma</b> 
+    <a href='https://github.com/shsarv' target='_blank'><i class='fa fa-github'></i></a> 
+    <a href='https://www.linkedin.com/in/sarvesh-kumar-sharma-869a1b185/' target='_blank'><i class='fa fa-linkedin'></i></a>
+</div>
+""", unsafe_allow_html=True)
