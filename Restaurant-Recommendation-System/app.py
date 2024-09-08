@@ -1,19 +1,16 @@
-from flask import Flask, render_template, url_for, flash, redirect, request
+import streamlit as st
 import pandas as pd
-# from sklearn.feature_extraction.text import CountVectorizer
-# from sklearn.metrics.pairwise import cosine_similarity
-app = Flask(__name__)
-#import pandas as pd
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+# Load the dataset
 lko_rest = pd.read_csv("food1.csv")
 
+# Define the fav function
 def fav(lko_rest1):
     lko_rest1 = lko_rest1.reset_index()
-    from sklearn.feature_extraction.text import CountVectorizer
-
     count1 = CountVectorizer(stop_words='english')
     count_matrix = count1.fit_transform(lko_rest1['highlights'])
-    from sklearn.metrics.pairwise import cosine_similarity
-
     cosine_sim2 = cosine_similarity(count_matrix, count_matrix)
 
     sim = list(enumerate(cosine_sim2[0]))
@@ -33,10 +30,9 @@ def fav(lko_rest1):
 
     return final
 
-
+# Define the restaurant recommendation function
 def rest_rec(cost, people=2, min_cost=0, cuisine=[], Locality=[], fav_rest="", lko_rest=lko_rest):
     cost = cost + 200
-
     x = cost / people
     y = min_cost / people
 
@@ -62,7 +58,6 @@ def rest_rec(cost, people=2, min_cost=0, cuisine=[], Locality=[], fav_rest="", l
         lko_rest_cui.drop_duplicates(subset='name', keep='last', inplace=True)
 
     if fav_rest != "":
-
         favr = lko_rest.loc[lko_rest['name'] == fav_rest].drop_duplicates()
         favr = pd.DataFrame(favr)
         lko_rest3 = pd.concat([favr, lko_rest_cui])
@@ -71,13 +66,13 @@ def rest_rec(cost, people=2, min_cost=0, cuisine=[], Locality=[], fav_rest="", l
     else:
         lko_rest_cui = lko_rest_cui.sort_values('scope', ascending=False)
         rest_selected = lko_rest_cui.head(10)
+    
     return rest_selected
 
-
+# Define the calculation function
 def calc(max_Price, people, min_Price, cuisine, locality):
     rest_sugg = rest_rec(max_Price, people, min_Price, [cuisine], [locality])
-    rest_list1 = rest_sugg.copy().loc[:,
-                 ['name', 'address', 'locality', 'timings', 'aggregate_rating', 'url', 'cuisines']]
+    rest_list1 = rest_sugg.copy().loc[:, ['name', 'address', 'locality', 'timings', 'aggregate_rating', 'url', 'cuisines']]
     rest_list = pd.DataFrame(rest_list1)
     rest_list = rest_list.reset_index()
     rest_list = rest_list.rename(columns={'index': 'res_id'})
@@ -88,27 +83,33 @@ def calc(max_Price, people, min_Price, cuisine, locality):
     res = [value for value in ans.values()]
     return res
 
+# Streamlit application
+st.title("Restaurant Recommender")
 
-@app.route("/")
-@app.route("/home", methods=['POST'])
-def home():
-    return render_template('home.html')
+# Input form
+with st.form(key="restaurant_form"):
+    people = st.number_input("Number of People", min_value=1, step=1, value=2)
+    min_Price = st.number_input("Minimum Price", min_value=0, step=100)
+    max_Price = st.number_input("Maximum Price", min_value=0, step=100)
+    cuisine1 = st.text_input("Cuisine", "Indian")
+    locality1 = st.text_input("Locality", "Hazratganj")
 
+    submit_button = st.form_submit_button(label="Search")
 
-@app.route("/search", methods=['POST'])
-def search():
-    if request.method == 'POST':
-        people = int(request.form['people'])
-        min_Price = int(request.form['min_Price'])
-        max_Price =int(request.form['max_Price'])
-        cuisine1 = request.form['cuisine']
-        locality1 = request.form['locality']
-        res = calc(max_Price, people, min_Price,cuisine1, locality1)
-        return render_template('search.html', title='Search', restaurants=res)
-        #return res
+# Display results after form submission
+if submit_button:
+    res = calc(max_Price, people, min_Price, cuisine1, locality1)
+    
+    if len(res) > 0:
+        st.subheader("Recommended Restaurants")
+        for r in res:
+            st.write(f"**Name:** {r['name']}")
+            st.write(f"**Address:** {r['address']}")
+            st.write(f"**Locality:** {r['locality']}")
+            st.write(f"**Timings:** {r['timings']}")
+            st.write(f"**Rating:** {r['aggregate_rating']}")
+            st.write(f"**Cuisines:** {r['cuisines']}")
+            st.write(f"**URL:** {r['url']}")
+            st.markdown("---")
     else:
-        return redirect(url_for('home'))
-
-
-if __name__ == '__main__':
-    app.run(debug=True)
+        st.write("No restaurants found matching your criteria.")
